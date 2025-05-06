@@ -2,7 +2,6 @@ import asyncio
 import platform
 import pygame
 import random
-import heapq
 
 # Initialize Pygame
 pygame.init()
@@ -84,7 +83,6 @@ show_ghost_paths = True
 move_counter = 0
 ghost_move_timer = 0
 
-
 # Button class
 class Button:
     def __init__(self, text, x, y, width, height, color, hover_color):
@@ -108,49 +106,109 @@ class Button:
                 return True
         return False
 
+# A* algorithm implementation (adapted from standalone script)
+class Cell:
+    def __init__(self):
+        self.parent_i = 0
+        self.parent_j = 0
+        self.f = float('inf')
+        self.g = float('inf')
+        self.h = 0
 
-# A* algorithm
-def astar_search(start, goal, avoid_positions=None):
-    if avoid_positions is None:
-        avoid_positions = []
-    move_directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+def is_valid(row, col):
+    return (row >= 0) and (row < GRID_HEIGHT) and (col >= 0) and (col < GRID_WIDTH)
 
-    def heuristic(a, b):
-        return abs(a[0] - b[0]) + abs(a[1] - b[1])
+def is_unblocked(grid, row, col):
+    return grid[row][col] != 1  # Passable if not a wall
 
-    frontier = []
-    heapq.heappush(frontier, (0, start))
-    cost_so_far = {start: 0}
-    came_from = {start: None}
+def is_destination(row, col, dest):
+    return row == dest[0] and col == dest[1]
 
-    while frontier:
-        current_f, current = heapq.heappop(frontier)
-        if current == goal:
-            break
-        for dx, dy in move_directions:
-            next_node = (current[0] + dx, current[1] + dy)
-            if (0 <= next_node[0] < GRID_WIDTH and
-                    0 <= next_node[1] < GRID_HEIGHT and
-                    grid[next_node[1]][next_node[0]] != 1 and
-                    next_node not in avoid_positions):
-                new_cost = cost_so_far[current] + 1
-                if next_node not in cost_so_far or new_cost < cost_so_far[next_node]:
-                    cost_so_far[next_node] = new_cost
-                    f_score = new_cost + heuristic(next_node, goal)
-                    heapq.heappush(frontier, (f_score, next_node))
-                    came_from[next_node] = current
+def calculate_h_value(row, col, dest):
+    return abs(row - dest[0]) + abs(col - dest[1])
 
-    if goal not in came_from:
-        return None
+def trace_path(cell_details, dest):
     path = []
-    current = goal
-    while current != start:
-        path.append(current)
-        current = came_from[current]
-    path.append(start)
+    row = dest[0]
+    col = dest[1]
+    while not (cell_details[row][col].parent_i == row and cell_details[row][col].parent_j == col):
+        path.append((col, row))  # Store as (x, y) for game compatibility
+        temp_row = cell_details[row][col].parent_i
+        temp_col = cell_details[row][col].parent_j
+        row = temp_row
+        col = temp_col
+    path.append((col, row))
     path.reverse()
     return path
 
+def astar_search(grid, src, dest):
+    # Validate inputs
+    if not is_valid(src[1], src[0]) or not is_valid(dest[1], dest[0]):
+        return None
+    if not is_unblocked(grid, src[1], src[0]) or not is_unblocked(grid, dest[1], dest[0]):
+        return None
+    if is_destination(src[1], src[0], dest):
+        return [src]
+
+    # Initialize data structures
+    closed_list = [[False for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
+    cell_details = [[Cell() for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
+
+    i = src[1]  # Row (y)
+    j = src[0]  # Column (x)
+    cell_details[i][j].f = 0
+    cell_details[i][j].g = 0
+    cell_details[i][j].h = 0
+    cell_details[i][j].parent_i = i
+    cell_details[i][j].parent_j = j
+
+    # Manual priority queue (list sorted by f value)
+    open_list = [(0.0, i, j)]  # (f, row, col)
+
+    found_dest = False
+    while open_list:
+        # Pop node with minimum f value
+        min_f_idx = 0
+        for idx, (f, _, _) in enumerate(open_list):
+            if f < open_list[min_f_idx][0]:
+                min_f_idx = idx
+        p = open_list.pop(min_f_idx)
+        i = p[1]
+        j = p[2]
+        closed_list[i][j] = True
+
+        # Explore four directions: right, left, down, up
+        directions = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+        for dir in directions:
+            new_i = i + dir[0]
+            new_j = j + dir[1]
+            if is_valid(new_i, new_j) and is_unblocked(grid, new_i, new_j) and not closed_list[new_i][new_j]:
+                if is_destination(new_i, new_j, dest):
+                    cell_details[new_i][new_j].parent_i = i
+                    cell_details[new_i][new_j].parent_j = j
+                    found_dest = True
+                    return trace_path(cell_details, dest)
+                else:
+                    g_new = cell_details[i][j].g + 1.0
+                    h_new = calculate_h_value(new_i, new_j, dest)
+                    f_new = g_new + h_new
+                    if cell_details[new_i][new_j].f == float('inf') or cell_details[new_i][new_j].f > f_new:
+                        # Insert into open_list in sorted order
+                        cell_details[new_i][new_j].f = f_new
+                        cell_details[new_i][new_j].g = g_new
+                        cell_details[new_i][new_j].h = h_new
+                        cell_details[new_i][new_j].parent_i = i
+                        cell_details[new_i][new_j].parent_j = j
+                        # Find insertion point
+                        insert_idx = 0
+                        for idx, (f, _, _) in enumerate(open_list):
+                            if f_new < f:
+                                break
+                            insert_idx = idx + 1
+                        open_list.insert(insert_idx, (f_new, new_i, new_j))
+
+    if not found_dest:
+        return None
 
 # Valid move check
 def is_valid_move(pos, dx, dy):
@@ -159,7 +217,6 @@ def is_valid_move(pos, dx, dy):
     if 0 <= new_x < GRID_WIDTH and 0 <= new_y < GRID_HEIGHT and grid[new_y][new_x] != 1:
         return True
     return False
-
 
 # Draw ghost paths
 def draw_ghost_paths():
@@ -185,7 +242,6 @@ def draw_ghost_paths():
                         (pos[0] * CELL_SIZE + CELL_SIZE // 2 - step_text.get_width() // 2,
                          pos[1] * CELL_SIZE + CELL_SIZE // 2 - step_text.get_height() // 2)
                     )
-
 
 # Draw game
 def draw_game():
@@ -221,7 +277,6 @@ def draw_game():
     pause_hint = font.render("P: Pause", True, WHITE)
     screen.blit(pause_hint, (WIDTH - pause_hint.get_width() - 10, 10))
 
-
 # Draw main menu
 def draw_main_menu():
     screen.fill(BLACK)
@@ -231,7 +286,6 @@ def draw_main_menu():
     screen.blit(title_text, title_rect)
 
     start_button.draw(screen)
-
 
 # Draw pause menu
 def draw_pause_menu():
@@ -249,7 +303,6 @@ def draw_pause_menu():
     continue_button.draw(screen)
     quit_button.draw(screen)
 
-
 # Draw win screen
 def draw_win_screen():
     screen.fill(BLACK)
@@ -264,7 +317,6 @@ def draw_win_screen():
 
     main_menu_button.draw(screen)
 
-
 # Draw lose screen
 def draw_lose_screen():
     screen.fill(BLACK)
@@ -278,7 +330,6 @@ def draw_lose_screen():
     screen.blit(score_text, score_rect)
 
     main_menu_button.draw(screen)
-
 
 # Reset game
 def reset_game():
@@ -312,18 +363,15 @@ def reset_game():
             if grid[y][x] == 0 and random.random() < 0.3:
                 grid[y][x] = 2
 
-
 # Initialize buttons
 start_button = Button("Start Game", WIDTH // 4, HEIGHT // 2, WIDTH // 2, 50, BLUE, GREEN)
 continue_button = Button("Continue", WIDTH // 4, HEIGHT // 2 - 30, WIDTH // 2, 50, BLUE, GREEN)
 quit_button = Button("Quit", WIDTH // 4, HEIGHT // 2 + 30, WIDTH // 2, 50, BLUE, RED)
 main_menu_button = Button("Main Menu", WIDTH // 4, HEIGHT // 2 + 30, WIDTH // 2, 50, BLUE, GREEN)
 
-
 # Setup function
 def setup():
     reset_game()
-
 
 # Update loop
 def update_loop():
@@ -365,13 +413,13 @@ def update_loop():
                         grid[pacman_pos[1]][pacman_pos[0]] = 0
                         score += 10
                     for i, ghost in enumerate(ghosts):
-                        ghost_paths[i] = astar_search(ghost, tuple(pacman_pos))
+                        ghost_paths[i] = astar_search(grid, ghost, tuple(pacman_pos))
 
         ghost_move_timer += 1
         if ghost_move_timer >= FPS // 2:
             ghost_move_timer = 0
             for i, ghost in enumerate(ghosts):
-                ghost_paths[i] = astar_search(ghost, tuple(pacman_pos))
+                ghost_paths[i] = astar_search(grid, ghost, tuple(pacman_pos))
                 if ghost_paths[i] and len(ghost_paths[i]) > 1:
                     ghosts[i] = ghost_paths[i][1]
                     if tuple(ghosts[i]) == tuple(pacman_pos):
@@ -399,7 +447,6 @@ def update_loop():
     pygame.display.flip()
     return True
 
-
 # Main game loop
 async def main():
     setup()
@@ -407,7 +454,6 @@ async def main():
     while running:
         running = update_loop()
         await asyncio.sleep(1.0 / FPS)
-
 
 # Run the game
 if platform.system() == "Emscripten":
