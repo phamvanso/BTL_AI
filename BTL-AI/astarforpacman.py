@@ -2,19 +2,20 @@ import asyncio
 import platform
 import pygame
 import random
+import heapq
 
-# Initialize Pygame
+# Khởi tạo Pygame
 pygame.init()
 
-# Game constants
-CELL_SIZE = 30
-GRID_WIDTH = 20
-GRID_HEIGHT = 15
+# Hằng số trò chơi
+CELL_SIZE = 50
+GRID_WIDTH =20  # Cập nhật theo ma trận mới (12 cột)
+GRID_HEIGHT = 15  # Cập nhật theo ma trận mới (11 hàng)
 WIDTH = CELL_SIZE * GRID_WIDTH
 HEIGHT = CELL_SIZE * GRID_HEIGHT
 FPS = 10
 
-# Colors
+# Màu sắc
 BLACK = (0, 0, 0)
 BLUE = (0, 0, 255)
 WHITE = (255, 255, 255)
@@ -24,49 +25,24 @@ GREEN = (0, 255, 0)
 GRAY = (128, 128, 128)
 PINK = (255, 192, 203)
 
-# Game states
+# Trạng thái trò chơi
 MAIN_MENU = "main_menu"
 PLAYING = "playing"
 PAUSED = "paused"
 WIN = "win"
 LOSE = "lose"
 
-# Set up display
+# Thiết lập màn hình
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Pacman with A*")
 clock = pygame.time.Clock()
 
-# Game grid
-grid = [
-    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 0, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1],
-    [1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-    [1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1],
-    [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-    [1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 0, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1],
-    [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-    [1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1],
-    [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-]
-
-# Place food
-for y in range(len(grid)):
-    for x in range(len(grid[0])):
-        if grid[y][x] == 0 and random.random() < 0.3:
-            grid[y][x] = 2
-
-# Initial positions
-pacman_pos = [1, 1]
-ghosts = [(18, 13)]
+# Vị trí ban đầu của Pacman và ma quỷ
+pacman_pos = [1, 1]  # Vẫn hợp lệ trong ma trận mới
+ghosts = [(18, 3)]   # Cập nhật vị trí ma quỷ để nằm trong ô đi được
 ghost_paths = [[]]
 
-# Movement directions
+# Hướng di chuyển
 directions = {
     pygame.K_UP: (0, -1),
     pygame.K_RIGHT: (1, 0),
@@ -74,7 +50,7 @@ directions = {
     pygame.K_LEFT: (-1, 0)
 }
 
-# Game variables
+# Biến trò chơi
 score = 0
 font = pygame.font.Font(None, 36)
 game_state = MAIN_MENU
@@ -83,7 +59,7 @@ show_ghost_paths = True
 move_counter = 0
 ghost_move_timer = 0
 
-# Button class
+# Lớp nút bấm
 class Button:
     def __init__(self, text, x, y, width, height, color, hover_color):
         self.text = text
@@ -93,6 +69,7 @@ class Button:
         self.font = pygame.font.Font(None, 36)
 
     def draw(self, screen):
+        # Vẽ nút bấm, thay đổi màu khi chuột di chuột qua
         mouse_pos = pygame.mouse.get_pos()
         color = self.hover_color if self.rect.collidepoint(mouse_pos) else self.color
         pygame.draw.rect(screen, color, self.rect)
@@ -101,124 +78,128 @@ class Button:
         screen.blit(text_surf, text_rect)
 
     def is_clicked(self, event):
+        # Kiểm tra xem nút có được nhấn không
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.rect.collidepoint(event.pos):
                 return True
         return False
 
-# A* algorithm implementation (adapted from standalone script)
+# Lớp lưu trữ thông tin ô trong thuật toán A*
 class Cell:
     def __init__(self):
-        self.parent_i = 0
-        self.parent_j = 0
-        self.f = float('inf')
-        self.g = float('inf')
-        self.h = 0
+        self.parent_i = 0  # Chỉ số hàng của ô cha
+        self.parent_j = 0  # Chỉ số cột của ô cha
+        self.f = float('inf')  # Tổng chi phí (g + h)
+        self.g = float('inf')  # Chi phí từ điểm bắt đầu đến ô này
+        self.h = 0  # Chi phí heuristic từ ô này đến đích
 
+# Kiểm tra ô có nằm trong lưới không
 def is_valid(row, col):
     return (row >= 0) and (row < GRID_HEIGHT) and (col >= 0) and (col < GRID_WIDTH)
 
+# Kiểm tra ô có đi được không (phải là 1 hoặc 2)
 def is_unblocked(grid, row, col):
-    return grid[row][col] != 1  # Passable if not a wall
+    return grid[row][col] == 1 or grid[row][col] == 2
 
+# Kiểm tra xem ô có phải đích không
 def is_destination(row, col, dest):
-    return row == dest[0] and col == dest[1]
+    return row == dest[1] and col == dest[0]
 
+# Tính giá trị heuristic (khoảng cách Manhattan)
 def calculate_h_value(row, col, dest):
-    return abs(row - dest[0]) + abs(col - dest[1])
+    return abs(row - dest[1]) + abs(col - dest[0])
 
-def trace_path(cell_details, dest):
-    path = []
-    row = dest[0]
-    col = dest[1]
-    while not (cell_details[row][col].parent_i == row and cell_details[row][col].parent_j == col):
-        path.append((col, row))  # Store as (x, y) for game compatibility
-        temp_row = cell_details[row][col].parent_i
-        temp_col = cell_details[row][col].parent_j
-        row = temp_row
-        col = temp_col
-    path.append((col, row))
-    path.reverse()
-    return path
+# Thuật toán A* tìm đường đi ngắn nhất
+def astar_search(start, goal, avoid_positions=None):
+    if avoid_positions is None:
+        avoid_positions = []
 
-def astar_search(grid, src, dest):
-    # Validate inputs
-    if not is_valid(src[1], src[0]) or not is_valid(dest[1], dest[0]):
-        return None
-    if not is_unblocked(grid, src[1], src[0]) or not is_unblocked(grid, dest[1], dest[0]):
-        return None
-    if is_destination(src[1], src[0], dest):
-        return [src]
+    # Kiểm tra tính hợp lệ của điểm bắt đầu và đích
+    if not is_valid(start[1], start[0]) or not is_valid(goal[1], goal[0]):
+        return None  # Trả về None nếu điểm bắt đầu hoặc đích không hợp lệ
 
-    # Initialize data structures
+    # Kiểm tra xem điểm bắt đầu hoặc đích có bị chặn không
+    if not is_unblocked(grid, start[1], start[0]) or not is_unblocked(grid, goal[1], goal[0]):
+        return None  # Trả về None nếu điểm bắt đầu hoặc đích bị chặn
+
+    # Kiểm tra xem đã ở đích chưa
+    if is_destination(start[1], start[0], goal):
+        return [start]  # Trả về danh sách chỉ chứa điểm bắt đầu nếu đã ở đích
+
+    # Khởi tạo danh sách các ô đã duyệt
     closed_list = [[False for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
+    # Khởi tạo thông tin chi tiết của các ô
     cell_details = [[Cell() for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
 
-    i = src[1]  # Row (y)
-    j = src[0]  # Column (x)
+    # Thiết lập thông tin ô bắt đầu
+    i = start[1]
+    j = start[0]
     cell_details[i][j].f = 0
     cell_details[i][j].g = 0
     cell_details[i][j].h = 0
     cell_details[i][j].parent_i = i
     cell_details[i][j].parent_j = j
 
-    # Manual priority queue (list sorted by f value)
-    open_list = [(0.0, i, j)]  # (f, row, col)
+    # Danh sách mở để lưu các ô cần khám phá
+    open_list = []
+    heapq.heappush(open_list, (0.0, i, j))
 
-    found_dest = False
-    while open_list:
-        # Pop node with minimum f value
-        min_f_idx = 0
-        for idx, (f, _, _) in enumerate(open_list):
-            if f < open_list[min_f_idx][0]:
-                min_f_idx = idx
-        p = open_list.pop(min_f_idx)
+    # Các hướng di chuyển: phải, trái, xuống, lên
+    move_directions = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+
+    while len(open_list) > 0:
+        p = heapq.heappop(open_list)
         i = p[1]
         j = p[2]
-        closed_list[i][j] = True
+        closed_list[i][j] = True  # Đánh dấu ô đã duyệt
 
-        # Explore four directions: right, left, down, up
-        directions = [(0, 1), (0, -1), (1, 0), (-1, 0)]
-        for dir in directions:
+        for dir in move_directions:
             new_i = i + dir[0]
             new_j = j + dir[1]
-            if is_valid(new_i, new_j) and is_unblocked(grid, new_i, new_j) and not closed_list[new_i][new_j]:
-                if is_destination(new_i, new_j, dest):
+
+            if (is_valid(new_i, new_j) and is_unblocked(grid, new_i, new_j) and
+                    not closed_list[new_i][new_j] and (new_j, new_i) not in avoid_positions):
+                if is_destination(new_i, new_j, goal):
                     cell_details[new_i][new_j].parent_i = i
                     cell_details[new_i][new_j].parent_j = j
-                    found_dest = True
-                    return trace_path(cell_details, dest)
+                    # Truy vết đường đi
+                    path = []
+                    row = goal[1]
+                    col = goal[0]
+                    while not (cell_details[row][col].parent_i == row and
+                               cell_details[row][col].parent_j == col):
+                        path.append((col, row))
+                        temp_row = cell_details[row][col].parent_i
+                        temp_col = cell_details[row][col].parent_j
+                        row = temp_row
+                        col = temp_col
+                    path.append((col, row))
+                    path.reverse()
+                    return path
                 else:
                     g_new = cell_details[i][j].g + 1.0
-                    h_new = calculate_h_value(new_i, new_j, dest)
+                    h_new = calculate_h_value(new_i, new_j, goal)
                     f_new = g_new + h_new
+
                     if cell_details[new_i][new_j].f == float('inf') or cell_details[new_i][new_j].f > f_new:
-                        # Insert into open_list in sorted order
+                        heapq.heappush(open_list, (f_new, new_i, new_j))
                         cell_details[new_i][new_j].f = f_new
                         cell_details[new_i][new_j].g = g_new
                         cell_details[new_i][new_j].h = h_new
                         cell_details[new_i][new_j].parent_i = i
                         cell_details[new_i][new_j].parent_j = j
-                        # Find insertion point
-                        insert_idx = 0
-                        for idx, (f, _, _) in enumerate(open_list):
-                            if f_new < f:
-                                break
-                            insert_idx = idx + 1
-                        open_list.insert(insert_idx, (f_new, new_i, new_j))
 
-    if not found_dest:
-        return None
+    return None  # Trả về None nếu không tìm thấy đường đi
 
-# Valid move check
+# Kiểm tra di chuyển hợp lệ
 def is_valid_move(pos, dx, dy):
     new_x = pos[0] + dx
     new_y = pos[1] + dy
-    if 0 <= new_x < GRID_WIDTH and 0 <= new_y < GRID_HEIGHT and grid[new_y][new_x] != 1:
+    if 0 <= new_x < GRID_WIDTH and 0 <= new_y < GRID_HEIGHT and is_unblocked(grid, new_y, new_x):
         return True
     return False
 
-# Draw ghost paths
+# Vẽ đường đi của ma quỷ
 def draw_ghost_paths():
     for path in ghost_paths:
         if path:
@@ -243,15 +224,15 @@ def draw_ghost_paths():
                          pos[1] * CELL_SIZE + CELL_SIZE // 2 - step_text.get_height() // 2)
                     )
 
-# Draw game
+# Vẽ trò chơi
 def draw_game():
     screen.fill(BLACK)
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
             rect = pygame.Rect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-            if grid[y][x] == 1:
+            if grid[y][x] == 0:  # Tường
                 pygame.draw.rect(screen, BLUE, rect)
-            elif grid[y][x] == 2:
+            elif grid[y][x] == 2:  # Thức ăn
                 pygame.draw.rect(screen, BLACK, rect)
                 pygame.draw.circle(screen, WHITE, (x * CELL_SIZE + CELL_SIZE // 2, y * CELL_SIZE + CELL_SIZE // 2),
                                    CELL_SIZE // 6)
@@ -259,79 +240,77 @@ def draw_game():
     if show_ghost_paths:
         draw_ghost_paths()
 
+    # Vẽ Pacman
     pygame.draw.circle(screen, YELLOW,
                        (pacman_pos[0] * CELL_SIZE + CELL_SIZE // 2, pacman_pos[1] * CELL_SIZE + CELL_SIZE // 2),
                        CELL_SIZE // 2)
 
+    # Vẽ ma quỷ
     for ghost in ghosts:
         pygame.draw.circle(screen, RED, (ghost[0] * CELL_SIZE + CELL_SIZE // 2, ghost[1] * CELL_SIZE + CELL_SIZE // 2),
                            CELL_SIZE // 2)
 
+    # Hiển thị điểm số
     score_text = font.render(f"Score: {score}", True, WHITE)
     screen.blit(score_text, (10, 10))
 
+    # Hiển thị hướng dẫn điều khiển
     controls_text = font.render("Arrows: Move | G: Toggle paths", True, WHITE)
     controls_rect = controls_text.get_rect(center=(WIDTH // 2, 20))
     screen.blit(controls_text, controls_rect)
 
+    # Hiển thị nút tạm dừng
     pause_hint = font.render("P: Pause", True, WHITE)
     screen.blit(pause_hint, (WIDTH - pause_hint.get_width() - 10, 10))
 
-# Draw main menu
+# Vẽ menu chính
 def draw_main_menu():
     screen.fill(BLACK)
     title_font = pygame.font.Font(None, 64)
     title_text = title_font.render("Pacman A*", True, YELLOW)
     title_rect = title_text.get_rect(center=(WIDTH // 2, HEIGHT // 3))
     screen.blit(title_text, title_rect)
-
     start_button.draw(screen)
 
-# Draw pause menu
+# Vẽ menu tạm dừng
 def draw_pause_menu():
     draw_game()
     pause_surface = pygame.Surface((WIDTH, HEIGHT))
     pause_surface.set_alpha(180)
     pause_surface.fill(GRAY)
     screen.blit(pause_surface, (0, 0))
-
     pause_font = pygame.font.Font(None, 64)
     pause_text = pause_font.render("GAME PAUSED", True, WHITE)
     text_rect = pause_text.get_rect(center=(WIDTH // 2, HEIGHT // 3))
     screen.blit(pause_text, text_rect)
-
     continue_button.draw(screen)
     quit_button.draw(screen)
 
-# Draw win screen
+# Vẽ màn hình thắng
 def draw_win_screen():
     screen.fill(BLACK)
     win_font = pygame.font.Font(None, 64)
     win_text = win_font.render("YOU WIN!", True, GREEN)
     win_rect = win_text.get_rect(center=(WIDTH // 2, HEIGHT // 3))
     screen.blit(win_text, win_rect)
-
     score_text = font.render(f"Score: {score}", True, WHITE)
     score_rect = score_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
     screen.blit(score_text, score_rect)
-
     main_menu_button.draw(screen)
 
-# Draw lose screen
+# Vẽ màn hình thua
 def draw_lose_screen():
     screen.fill(BLACK)
     lose_font = pygame.font.Font(None, 64)
     lose_text = lose_font.render("GAME OVER", True, RED)
     lose_rect = lose_text.get_rect(center=(WIDTH // 2, HEIGHT // 3))
     screen.blit(lose_text, lose_rect)
-
     score_text = font.render(f"Score: {score}", True, WHITE)
     score_rect = score_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
     screen.blit(score_text, score_rect)
-
     main_menu_button.draw(screen)
 
-# Reset game
+# Đặt lại trò chơi
 def reset_game():
     global pacman_pos, ghosts, ghost_paths, score, grid, current_direction, move_counter, ghost_move_timer
     pacman_pos = [1, 1]
@@ -341,39 +320,41 @@ def reset_game():
     current_direction = None
     move_counter = 0
     ghost_move_timer = 0
+    # Ma trận mới: 0 là tường, 1 là đường, 2 là thức ăn
     grid = [
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1],
-        [1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1],
-        [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-        [1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1],
-        [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-        [1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1],
-        [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0],
+        [0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0],
+        [0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+        [0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0],
+        [0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0],
+        [0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0],
+        [0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0],
+        [0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     ]
+    # Đặt thức ăn ngẫu nhiên trên các ô đi được (1)
     for y in range(len(grid)):
         for x in range(len(grid[0])):
-            if grid[y][x] == 0 and random.random() < 0.3:
+            if grid[y][x] == 1 and random.random() < 0.3:
                 grid[y][x] = 2
 
-# Initialize buttons
+# Khởi tạo các nút bấm
 start_button = Button("Start Game", WIDTH // 4, HEIGHT // 2, WIDTH // 2, 50, BLUE, GREEN)
 continue_button = Button("Continue", WIDTH // 4, HEIGHT // 2 - 30, WIDTH // 2, 50, BLUE, GREEN)
 quit_button = Button("Quit", WIDTH // 4, HEIGHT // 2 + 30, WIDTH // 2, 50, BLUE, RED)
 main_menu_button = Button("Main Menu", WIDTH // 4, HEIGHT // 2 + 30, WIDTH // 2, 50, BLUE, GREEN)
 
-# Setup function
+# Thiết lập ban đầu
 def setup():
     reset_game()
 
-# Update loop
+# Vòng lặp cập nhật
 def update_loop():
     global game_state, current_direction, move_counter, ghost_move_timer, score, pacman_pos, ghosts, ghost_paths, show_ghost_paths
 
@@ -410,16 +391,16 @@ def update_loop():
                     new_y = pacman_pos[1] + dy
                     pacman_pos = [new_x, new_y]
                     if grid[pacman_pos[1]][pacman_pos[0]] == 2:
-                        grid[pacman_pos[1]][pacman_pos[0]] = 0
+                        grid[pacman_pos[1]][pacman_pos[0]] = 1  # Thay thức ăn bằng đường trống
                         score += 10
                     for i, ghost in enumerate(ghosts):
-                        ghost_paths[i] = astar_search(grid, ghost, tuple(pacman_pos))
+                        ghost_paths[i] = astar_search(ghost, tuple(pacman_pos))
 
         ghost_move_timer += 1
         if ghost_move_timer >= FPS // 2:
             ghost_move_timer = 0
             for i, ghost in enumerate(ghosts):
-                ghost_paths[i] = astar_search(grid, ghost, tuple(pacman_pos))
+                ghost_paths[i] = astar_search(ghost, tuple(pacman_pos))
                 if ghost_paths[i] and len(ghost_paths[i]) > 1:
                     ghosts[i] = ghost_paths[i][1]
                     if tuple(ghosts[i]) == tuple(pacman_pos):
@@ -447,7 +428,7 @@ def update_loop():
     pygame.display.flip()
     return True
 
-# Main game loop
+# Vòng lặp chính
 async def main():
     setup()
     running = True
@@ -455,7 +436,7 @@ async def main():
         running = update_loop()
         await asyncio.sleep(1.0 / FPS)
 
-# Run the game
+# Chạy trò chơi
 if platform.system() == "Emscripten":
     asyncio.ensure_future(main())
 else:
